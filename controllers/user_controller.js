@@ -1,112 +1,135 @@
-var models = require('../models/models.js');
+var models = require('../models');
+var Sequelize = require('sequelize');
 
-// MW que permite acciones solamente si el usuario objeto corresponde con el usuario logeado o si es cuenta admin
-exports.ownershipRequired = function(req, res, next){
-    var objUser = req.user.id;
-    var logUser = req.session.user.id;
-    var isAdmin = req.session.user.isAdmin;
-    
-    if (isAdmin || objUser === logUser) {
-        next();
-    } else {
-        res.redirect('/');
-    }
-};
 
-// Autoload :id
+// Autoload el user asociado a :userId
 exports.load = function(req, res, next, userId) {
-  models.User.find({
-            where: {
-                id: Number(userId)
-            }
-        }).then(function(user) {
-      if (user) {
-        req.user = user;
-        next();
-      } else{next(new Error('No existe userId=' + userId))}
-    }
-  ).catch(function(error){next(error)});
-};
-
-// Comprueba si el usuario esta registrado en users
-// Si autenticación falla o hay errores se ejecuta callback(error).
-exports.autenticar = function(login, password, callback) {
-	models.User.find({
-        where: {
-            username: login
-        }
-    }).then(function(user) {
-    	if (user) {
-    		if(user.verifyPassword(password)){
-            	callback(null, user);
-        	}
-        	else { callback(new Error('Password erróneo.')); } 	
-      	} else { callback(new Error('No existe user=' + login))}
-    }).catch(function(error){callback(error)});
-};
-
-
-// GET /user/:id/edit
-exports.edit = function(req, res) {
-  res.render('user/edit', { user: req.user, errors: []});
-};            // req.user: instancia de user cargada con autoload
-
-// GET /user
-exports.new = function(req, res) {
-    var user = models.User.build( // crea objeto user 
-        {username: "", password: ""}
-    );
-    res.render('user/new', {user: user, errors: []});
-};
-
-// POST /user
-exports.create = function(req, res) {
-    var user = models.User.build( req.body.user );
-
-    user
-    .validate()
-    .then(
-        function(err){
-            if (err) {
-                res.render('user/new', {user: user, errors: err.errors});
+    models.User.findById(userId,{ include: [models.Quiz]})
+        .then(function(user) {
+            console.log(user);
+            if (user) {
+                req.user = user;
+                next();
             } else {
-                user // save: guarda en DB campos username y password de user
-                .save({fields: ["username", "password"]})
-                .then( function(){
-                    // crea la sesión para que el usuario acceda ya autenticado y redirige a /
-                    req.session.user = {id:user.id, username:user.username};
-                    res.redirect('/');
-                }); 
+                req.flash('error', 'No existe el usuario con id='+id+'.');
+                throw new Error('No existe userId=' + userId);
             }
-        }
-    ).catch(function(error){next(error)});
+        })
+        .catch(function(error) { next(error); });
 };
 
-// PUT /user/:id
+
+// GET /users
+exports.index = function(req, res, next) {
+    models.User.findAll({order: ['username']})
+        .then(function(users) {
+            res.render('users/index', { users: users });
+        })
+        .catch(function(error) { next(error); });
+};
+
+
+// GET /users/:id
+exports.show = function(req, res, next) {
+    res.render('users/show', {user: req.user});
+};
+
+
+// GET /users/new
+exports.new = function(req, res, next) {
+    var user = models.User.build({ username: "", 
+                                   password: "" });
+
+    res.render('users/new', { user: user });
+};
+
+
+// POST /users
+exports.create = function(req, res, next) {
+    var user = models.User.build({ username: req.body.user.username,
+                                   password: req.body.user.password
+                                });
+
+    // El login debe ser unico:
+    models.User.find({where: {username: req.body.user.username}})
+        .then(function(existing_user) {
+            if (existing_user) {
+                var emsg = "El usuario \""+ req.body.user.username +"\" ya existe."
+                req.flash('error', emsg);
+                res.render('users/new', { user: user });
+            } else {
+                // Guardar en la BBDD
+                return user.save({fields: ["username", "password", "salt"]})
+                    .then(function(user) { // Renderizar pagina de usuarios
+                        req.flash('success', 'Usuario creado con éxito.');
+                        res.redirect('/session');
+                    })
+                    .catch(Sequelize.ValidationError, function(error) {
+                        req.flash('error', 'Errores en el formulario:');
+                        for (var i in error.errors) {
+                            req.flash('error', error.errors[i].value);
+                        };
+                        res.render('users/new', { user: user });
+                    });
+            }
+        })
+        .catch(function(error) { 
+            next(error);
+        });
+};
+
+
+// GET /users/:id/edit
+exports.edit = function(req, res, next) {
+    res.render('users/edit', { user: req.user });  // req.user: instancia de user cargada con autoload
+};            
+
+
+// PUT /users/:id
 exports.update = function(req, res, next) {
-  req.user.username  = req.body.user.username;
-  req.user.password  = req.body.user.password;
 
-  req.user
-  .validate()
-  .then(
-    function(err){
-      if (err) {
-        res.render('user/' + req.user.id, {user: req.user, errors: err.errors});
-      } else {
-        req.user     // save: guarda campo username y password en DB
-        .save( {fields: ["username", "password"]})
-        .then( function(){ res.redirect('/');});
-      }     // Redirección HTTP a /
+    // req.user.username  = req.body.user.username; // No se permite su edicion
+    req.user.password  = req.body.user.password;
+
+    // El password no puede estar vacio
+    if ( ! req.body.user.password) { 
+        req.flash('error', "El campo Password debe rellenarse.");
+        return res.render('users/edit', {user: req.user});
     }
-  ).catch(function(error){next(error)});
+
+    req.user.save({fields: ["password", "salt"]})
+        .then(function(user) {
+            req.flash('success', 'Usuario actualizado con éxito.');
+            res.redirect('/users');  // Redirección HTTP a /
+        })
+        .catch(Sequelize.ValidationError, function(error) {
+
+            req.flash('error', 'Errores en el formulario:');
+            for (var i in error.errors) {
+                req.flash('error', error.errors[i].value);
+            };
+
+            res.render('users/edit', {user: req.user});
+        })
+        .catch(function(error) {
+            next(error);
+        });
 };
 
-// DELETE /user/:id
-exports.destroy = function(req, res) {
-  req.user.destroy().then( function() {
-    // borra la sesión y redirige a /
-    delete req.session.user;
-    res.redirect('/');
-  }).catch(function(error){next(error)});
+
+// DELETE /users/:id
+exports.destroy = function(req, res, next) {
+    req.user.destroy()
+        .then(function() {
+             // Borrando usuario logeado.
+            if (req.session.user && req.session.user.id === req.user.id) {
+                // borra la sesión y redirige a /
+                delete req.session.user;
+            }
+            req.flash('success', 'Usuario eliminado con éxito.');
+            res.redirect('/');
+        })
+        .catch(function(error){ 
+            next(error); 
+        });
 };

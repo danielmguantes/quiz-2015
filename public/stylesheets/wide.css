@@ -1,8 +1,13 @@
 body { background: #999; }
 
-#page-wrap:after { content: "Wide Layout"; }
+#page   { background: #eee;}
 
-nav       { float: left; width: 15%; height: 200px ;}
-nav span  { margin: 0px 100px 0px 0px;}
-section   { float: right; width: 80%; height: 200px ;}
-footer    { clear: both;  display: block; }
+#page:after { content: "Wide Layout"; }
+
+nav       { float: left; width: 15%;}
+
+section    { float: right; width: 80%;}
+
+footer    { clear: both;}
+
+nav a     { display: block; text-align: left;}

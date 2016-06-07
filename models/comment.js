@@ -1,16 +1,15 @@
-// Definicion del modelo de Quiz con validación
+
+
+
+// Definicion del modelo Comments:
 
 module.exports = function(sequelize, DataTypes) {
-  return sequelize.define(
-  	'Comment',
-    { texto: {
-        type: DataTypes.STRING,
-        validate: { notEmpty: {msg: "-> Falta Comentario"}}
-      },
-      publicado: {
-      	type: DataTypes.BOOLEAN,
-      	defaultValue: false
-      }
-    }    
-  );
-}
+  return sequelize.define('Comment',
+                          { text: { type: DataTypes.STRING,
+                          	        validate: { notEmpty: {msg: "Falta Comentario"}}
+                          	      },
+                          	accepted: { type: DataTypes.BOOLEAN,
+      	                                defaultValue: false
+                                      }      
+                          });
+};

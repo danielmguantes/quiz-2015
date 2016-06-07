@@ -1,5 +1,8 @@
 node_modules
-.DS_Store
 npm-debug.log
 quiz.sqlite
-public/media 
+.env
+certs/quiz-2016-cert.pem
+certs/quiz-2016-csr.pem
+certs/quiz-2016-key.pem
+

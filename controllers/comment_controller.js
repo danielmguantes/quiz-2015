@@ -1,78 +1,66 @@
-var models = require('../models/models.js');
+var models = require('../models');
+var Sequelize = require('sequelize');
 
-// MW que permite acciones solamente si el quiz al que pertenece el comentario objeto pertenece al usuario logeado o si es cuenta admin
-exports.ownershipRequired = function(req, res, next){
-    models.Quiz.find({
-            where: {
-                  id: Number(req.comment.QuizId)
-            }
-        }).then(function(quiz) {
-            if (quiz) {
-                var objQuizOwner = quiz.UserId;
-                var logUser = req.session.user.id;
-                var isAdmin = req.session.user.isAdmin;
 
-                console.log(objQuizOwner, logUser, isAdmin);
-
-                if (isAdmin || objQuizOwner === logUser) {
-                    next();
-                } else {
-                    res.redirect('/');
-                }
-            } else{next(new Error('No existe quizId=' + quizId))}
-        }
-    ).catch(function(error){next(error)});
-};
-
-// Autoload :id de comentarios
+// Autoload el comentario asociado a :commentId
 exports.load = function(req, res, next, commentId) {
-  models.Comment.find({
-            where: {
-                id: Number(commentId)
-            }
-        }).then(function(comment) {
-      if (comment) {
-        req.comment = comment;
-        next();
-      } else{next(new Error('No existe commentId=' + commentId))}
-    }
-  ).catch(function(error){next(error)});
+  models.Comment.findById(commentId)
+      .then(function(comment) {
+          if (comment) {
+            req.comment = comment;
+            next();
+          } else { 
+            next(new Error('No existe commentId=' + commentId));
+          }
+        })
+        .catch(function(error) { next(error); });
 };
 
-// GET /quizes/:quizId/comments/new
-exports.new = function(req, res) {
-  res.render('comments/new.ejs', {quizid: req.params.quizId, errors: []});
+// GET /quizzes/:quizId/comments/new
+exports.new = function(req, res, next) {
+  var comment = models.Comment.build({text: ""});
+  res.render('comments/new', { comment: comment, quiz: req.quiz });
 };
 
 // POST /quizes/:quizId/comments
-exports.create = function(req, res) {
+exports.create = function(req, res, next) {
+  var authorId = req.session.user && req.session.user.id || 0;
+
   var comment = models.Comment.build(
-      { texto: req.body.comment.texto,          
-        QuizId: req.params.quizId
-        });
-
-  comment
-  .validate()
-  .then(
-    function(err){
-      if (err) {
-        res.render('comments/new.ejs', {comment: comment, errors: err.errors});
-      } else {
-        comment // save: guarda en DB campo texto de comment
-        .save()
-        .then( function(){ res.redirect('/quizes/'+req.params.quizId)}) 
-      }      // res.redirect: Redirección HTTP a lista de preguntas
-    }
-  ).catch(function(error){next(error)});
-  
+      { text:   req.body.comment.text,          
+        QuizId: req.quiz.id,
+        AuthorId: authorId
+      });
+  comment.save()
+    .then(function(comment) {
+      req.flash('success', 'Comentario creado con éxito.');
+      res.redirect('/quizzes/' + req.quiz.id);
+    }) 
+	  .catch(Sequelize.ValidationError, function(error) {
+      req.flash('error', 'Errores en el formulario:');
+      for (var i in error.errors) {
+          req.flash('error', error.errors[i].value);
+      };
+      res.render('comments/new', { comment: comment,quiz:req.quiz});
+    })
+    .catch(function(error) {
+      req.flash('error', 'Error al crear un Comentario: '+error.message);
+		  next(error);
+	  });    
 };
 
-// GET /quizes/:quizId/comments/:commentId/publish
-exports.publish = function(req, res) {
-  req.comment.publicado = true;
+// GET /quizzes/:quizId/comments/:commentId/accept
+exports.accept = function(req, res, next) {
 
-  req.comment.save( {fields: ["publicado"]})
-    .then( function(){ res.redirect('/quizes/'+req.params.quizId);} )
-    .catch(function(error){next(error)});
+  req.comment.accepted = true;
 
-};
+  req.comment.save(["accepted"])
+    .then(function(comment) {
+      req.flash('success', 'Comentario aceptado con éxito.');
+      res.redirect('/quizzes/'+req.params.quizId);
+    })
+    .catch(function(error) {
+       req.flash('error', 'Error al aceptar un Comentario: '+error.message);
+       next(error);
+    });
+  };
